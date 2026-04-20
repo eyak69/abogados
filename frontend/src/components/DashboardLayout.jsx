@@ -1,15 +1,18 @@
-import Header from './Header';
-
-export default function DashboardLayout({ children }) {
+export default function DashboardLayout({ sidebar, children }) {
   return (
     <div className="app-container">
-      <Header />
-      <main className="bento-grid">
+      <aside className="sidebar">
+        {sidebar}
+      </aside>
+      <main className="chat-main">
+        <header className="chat-header">
+           <h2>Expediente Activo: <span>General</span></h2>
+           <div className="user-profile">
+              <span className="node-info">v2.1 Stable</span>
+           </div>
+        </header>
         {children}
       </main>
-      <footer className="app-footer">
-        <p>© 2026 Abogados & Asociados - Sistema de Inteligencia Legal Confidencial</p>
-      </footer>
     </div>
   );
 }

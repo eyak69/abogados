@@ -27,3 +27,14 @@ Se ha decidido integrar la metodología de "Superpowers" adaptada al español pa
 * **Rediseño Radical Abogados v2 - Bento Dark Glass:** Ante la insatisfacción del usuario con el diseño previo, se ejecutó un cambio de paradigma total hacia un layout tipo "Bento Box" con estética Glassmorphism avanzada (Abogados Premium v2 en Stitch). 
   * **Decisión Técnica:** Se eliminó el monolitismo de `App.jsx`, refactorizando todas las funcionalidades en componentes modulares (`ChatPanel`, `FileUpload`, `StatusTracker`). Esto resuelve la deuda técnica de escalabilidad.
   * **Riesgo Mitigado:** Se encapsuló la lógica de SSE en el componente de tracking para asegurar que la UI no se bloquee por eventos de red, manteniendo el principio de "Single Responsibility" (Regla 12).
+* **Migración a Layout "Veritas Telegram" (Fase 3):** Se detectó que el layout Bento causaba un crecimiento indeseado de la pantalla. Se decidió pivotar hacia una estructura de Panel Lateral (Sidebar) + Chat de altura fija (100vh).
+  * **Aprendizaje:** La UX de mensajería debe ser predecible. Forzar la altura a vh previene saltos de pantalla (Layout Shift) y mejora la usabilidad en dispositivos táctiles.
+
+## Arquitectura Soberana y Metadatos de Alta Fidelidad (Abril 2026)
+* **Eliminación de n8n para Lógica de Chat (Desacoplamiento):** Se decidió migrar la lógica del chatbot desde n8n hacia un `ChatService` nativo en Node.js para reducir latencia y mejorar el control contextual.
+* **Refactorización de Exportación Premium (pdfmake vs PDFKit):** Migración a **PDFKit** para garantizar resiliencia en la generación de PDFs legales con fuentes estándar en Node.js, eliminando fallos de fuentes del servidor.
+* **Esquema de Metadatos Evolutivo (Legal Discovery Pro):** Implementación de una capa dinámica (`datos_especificos`) que permite a Gemini identificar variables legales únicas por caso, junto a un `resumen_ejecutivo` para visión global del RAG.
+
+## Problemas Técnicos Específicos y Solucionados
+* **TypeError: pdf is not a function (pdf-parse):** Implementación de lógica de importación resiliente para manejar exportaciones funcionales y de objetos en diversas versiones de la librería.
+* **Fallo en Exportación PDF (Fonts):** Resuelto mediante la migración a PDFKit.
