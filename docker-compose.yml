@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: abogados_backend
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/uploads:/app/uploads # Persistencia blindada de archivos (Regla 4)
+      - ./backend/logs:/app/logs # Persistencia de Logs
+    environment:
+      - NODE_ENV=development
+      - PORT=4000
+    env_file:
+      - ./backend/.env
+    # host.docker.internal permite acceder al MySQL que ya está instalado en el SO del anfitrión (127.0.0.1)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: abogados_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend/src:/app/src
+      - ./frontend/public:/app/public
+    environment:
+      - VITE_API_URL=http://localhost:4000

@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+model Document {
+  id           String   @id @default(uuid())
+  filename     String
+  originalName String
+  size         Int
+  uploadedAt   DateTime @default(now())
+  status       String   @default("UPLOADED_TO_BACKEND") // UPLOADED_TO_BACKEND, SYNCED_TO_N8N, FAILED
+}
+
+model ChatSession {
+  id        String   @id @default(uuid())
+  title     String?
+  createdAt DateTime @default(now())
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id           String   @id @default(uuid())
+  sessionId    String
+  session      ChatSession @relation(fields: [sessionId], references: [id])
+  role         String   // USER or AI
+  message      String   @db.Text
+  createdAt    DateTime @default(now())
+}
