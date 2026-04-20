@@ -83,13 +83,15 @@ export class AuthService {
 
 
             // Generación de JWT (Soberanía de Sesión)
+            const secret = process.env.JWT_SECRET;
+            if (!secret) throw new Error('JWT_SECRET no está definido en las variables de entorno.');
             const token = jwt.sign(
-                { 
-                    id: user.id, 
+                {
+                    id: user.id,
                     email: user.email,
-                    role: user.role 
+                    role: user.role
                 },
-                process.env.JWT_SECRET || 'secret-shhh',
+                secret,
                 { expiresIn: '7d' }
             );
 

@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { API_URL } from '../config.js';
 
 export default function ChatPanel({ sessionId }) {
   const { token } = useAuth();
@@ -24,8 +25,7 @@ export default function ChatPanel({ sessionId }) {
     setLoading(true);
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-      const response = await fetch(`${apiUrl}/api/chat`, {
+      const response = await fetch(`${API_URL}/api/chat`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
@@ -35,7 +35,11 @@ export default function ChatPanel({ sessionId }) {
       });
 
       const data = await response.json();
-      
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${data?.error || JSON.stringify(data)}`);
+      }
+
       let aiText = 'Protocolo completado sin datos de respuesta.';
       if (typeof data === 'string') aiText = data;
       else if (data && data.response) aiText = data.response;
@@ -44,7 +48,8 @@ export default function ChatPanel({ sessionId }) {
 
       setChatHistory([...newHistory, { role: 'AI', text: aiText }]);
     } catch (err) {
-      setChatHistory([...newHistory, { role: 'AI', text: '⚠️ [Fallo de Conexión] No se pudo alcanzar el nodo de IA soberano.' }]);
+      console.error('[Chat Error]', err);
+      setChatHistory([...newHistory, { role: 'AI', text: `⚠️ [Error] ${err?.message || String(err)}` }]);
     } finally {
       setLoading(false);
     }
@@ -52,8 +57,7 @@ export default function ChatPanel({ sessionId }) {
 
   const handleExport = async (format, content, title = "Informe Legal") => {
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-      const response = await fetch(`${apiUrl}/api/chat/export/${format}`, {
+      const response = await fetch(`${API_URL}/api/chat/export/${format}`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',

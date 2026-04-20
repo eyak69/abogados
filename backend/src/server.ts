@@ -1,5 +1,6 @@
 import dotenv from 'dotenv';
 dotenv.config();
+import crypto from 'crypto';
 
 import express from 'express';
 import cors from 'cors';
@@ -19,7 +20,22 @@ import { prisma } from './lib/prisma';
 
 const app = express();
 
-app.use(cors());
+const allowedOrigins = [
+    process.env.FRONTEND_URL,
+    'https://veritas.cristiananton.dev',
+    'http://localhost:5173'
+].filter(Boolean) as string[];
+
+app.use(cors({
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin)) {
+            callback(null, true);
+        } else {
+            callback(new Error(`CORS bloqueado: ${origin}`));
+        }
+    },
+    credentials: true
+}));
 app.use(express.json());
 
 /**
@@ -72,24 +88,34 @@ app.use('/api/auth', authRoutes);
 
 // CONFIGURACIÓN DE ALMACENAMIENTO (REGRESO A MULTER SEGURO)
 const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
+    destination: (_req, _file, cb) => {
         const dest = path.join(__dirname, '../uploads');
         if (!fs.existsSync(dest)) fs.mkdirSync(dest, { recursive: true });
         cb(null, dest);
     },
-    filename: (req, file, cb) => {
+    filename: (_req, file, cb) => {
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
         cb(null, 'expediente-' + uniqueSuffix + path.extname(file.originalname));
     }
 });
 
-const upload = multer({ storage: storage });
+const upload = multer({
+    storage,
+    limits: { fileSize: 50 * 1024 * 1024 }, // 50MB
+    fileFilter: (_req, file, cb) => {
+        if (file.mimetype === 'application/pdf') {
+            cb(null, true);
+        } else {
+            cb(new Error('Solo se permiten archivos PDF.'));
+        }
+    }
+});
 
 // HEALTH CHECK
-app.get('/health', (req, res) => res.json({ status: 'ok', timestamp: new Date() }));
+app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date() }));
 
 // SSE: PROGRESO DE CARGA
-app.get('/api/upload/status', (req, res) => {
+app.get('/api/upload/status', authenticate, (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
@@ -118,7 +144,7 @@ app.post('/api/upload', authenticate, requireRole('EDITOR'), upload.array('data'
                     filename: file.filename,
                     originalName: file.originalname,
                     size: file.size,
-                    fileHash: `PENDING-${Date.now()}-${Math.random()}`, // Temporal hasta calcular el real
+                    fileHash: `PENDING-${crypto.randomUUID()}`,
                     userId: userId || null,
                     status: 'PROCESSING',
                     metadata: {}
@@ -156,11 +182,20 @@ app.post('/api/upload', authenticate, requireRole('EDITOR'), upload.array('data'
 // ENDPOINT: LISTAR REPOSITORIO
 app.get('/api/documents', authenticate, async (req, res) => {
     try {
-        const docs = await prisma.document.findMany({
-            orderBy: { uploadedAt: 'desc' },
-            include: { user: { select: { name: true, email: true } } }
-        });
-        res.json(docs);
+        const page = Math.max(1, parseInt(String(req.query.page || '1')));
+        const limit = Math.min(100, Math.max(1, parseInt(String(req.query.limit || '20'))));
+        const skip = (page - 1) * limit;
+
+        const [docs, total] = await Promise.all([
+            prisma.document.findMany({
+                orderBy: { uploadedAt: 'desc' },
+                include: { user: { select: { name: true, email: true } } },
+                skip,
+                take: limit
+            }),
+            prisma.document.count()
+        ]);
+        res.json({ docs, total, page, totalPages: Math.ceil(total / limit) });
     } catch (error: any) {
         res.status(500).json({ error: 'Fallo al consultar el repositorio legal.' });
     }
@@ -174,7 +209,11 @@ app.delete('/api/documents/:id', authenticate, requireRole('EDITOR'), async (req
         if (!doc) return res.status(404).json({ error: 'Expediente no hallado.' });
 
         // 1. Borrar en Qdrant (Memoria IA)
-        await VectorService.deleteVectorsByHash(doc.fileHash);
+        const qdrantOk = await VectorService.deleteVectorsByHash(doc.fileHash);
+        if (!qdrantOk) {
+            console.warn(`[Delete] Qdrant falló para ${id} — abortando borrado para evitar inconsistencia.`);
+            return res.status(500).json({ error: 'Fallo al borrar vectores. Reintentá en unos segundos.' });
+        }
 
         // 2. Borrar Archivo Físico
         const filePath = path.join(__dirname, '../uploads', doc.filename);
@@ -217,7 +256,7 @@ app.post('/api/chat', authenticate, async (req: any, res: any) => {
 });
 
 // ENDPOINTS: EXPORTACIÓN
-app.post('/api/chat/export/pdf', async (req, res) => {
+app.post('/api/chat/export/pdf', authenticate, async (req, res) => {
     try {
         const { content, title } = req.body;
         const pdfBuffer = await ExportService.generatePDF(content, title);
@@ -229,7 +268,7 @@ app.post('/api/chat/export/pdf', async (req, res) => {
     }
 });
 
-app.post('/api/chat/export/word', async (req, res) => {
+app.post('/api/chat/export/word', authenticate, async (req, res) => {
     try {
         const { content, title } = req.body;
         const docxBuffer = await ExportService.generateWord(content, title);
@@ -247,7 +286,7 @@ if (fs.existsSync(frontendDistPath)) {
     console.log('📦 Integrando Frontend: Sirviendo estáticos desde', frontendDistPath);
     app.use(express.static(frontendDistPath));
     // Cualquier ruta no capturada por la API sirve el index.html (SPA Routing)
-    app.get(/^\/(?!api).*/, (req, res) => {
+    app.get(/^\/(?!api).*/, (_req, res) => {
         res.sendFile(path.join(frontendDistPath, 'index.html'));
     });
 } else {

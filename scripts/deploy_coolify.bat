@@ -20,6 +20,15 @@ echo.
 echo ==============================================================================
 echo.
 
+echo 🔢 Bumping version...
+for /f "tokens=*" %%i in ('node "%~dp0bump-version.js"') do set NEW_VERSION=%%i
+if "%NEW_VERSION%"=="" (
+    echo [WARN] No se pudo bumpar version, continuando...
+) else (
+    echo    Version actualizada a v%NEW_VERSION%
+)
+echo.
+
 echo 🐳 Logging into Docker Hub...
 docker login
 

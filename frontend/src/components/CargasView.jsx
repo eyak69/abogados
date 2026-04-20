@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { API_URL } from '../config.js';
 
 export default function CargasView() {
   const { token, user } = useAuth();
@@ -11,33 +12,47 @@ export default function CargasView() {
   const fileInputRef = useRef(null);
 
   useEffect(() => {
-    const eventSource = new EventSource(`${import.meta.env.VITE_API_URL}/api/upload/status`);
+    if (!token) return;
 
-    eventSource.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      
-      if (data.log) {
-        setLogs(prev => [...prev.slice(-100), {
-          id: Date.now() + Math.random(),
-          text: data.log,
-          type: data.status || 'info'
-        }]);
-      }
+    let retryTimeout;
+    let es;
 
-      if (data.filename) {
-        setActiveUploads(prev => ({
-          ...prev,
-          [data.filename]: {
-            status: data.status,
-            message: data.message,
-            progress: data.status === 'success' ? 100 : (prev[data.filename]?.progress || 0) + 2
-          }
-        }));
-      }
+    const connect = () => {
+      es = new EventSource(`${API_URL}/api/upload/status?token=${token}`);
+
+      es.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        if (data.log) {
+          setLogs(prev => [...prev.slice(-100), {
+            id: Date.now() + Math.random(),
+            text: data.log,
+            type: data.status || 'info'
+          }]);
+        }
+        if (data.filename) {
+          setActiveUploads(prev => ({
+            ...prev,
+            [data.filename]: {
+              status: data.status,
+              message: data.message,
+              progress: data.status === 'success' ? 100 : (prev[data.filename]?.progress || 0) + 2
+            }
+          }));
+        }
+      };
+
+      es.onerror = () => {
+        es.close();
+        retryTimeout = setTimeout(connect, 5000);
+      };
     };
 
-    return () => eventSource.close();
-  }, []);
+    connect();
+    return () => {
+      es?.close();
+      clearTimeout(retryTimeout);
+    };
+  }, [token]);
 
   useEffect(() => {
     if (terminalDocRef.current) {
@@ -60,7 +75,7 @@ export default function CargasView() {
     files.forEach((file) => formData.append('data', file));
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL}/api/upload`, {
+      const response = await fetch(`${API_URL}/api/upload`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`

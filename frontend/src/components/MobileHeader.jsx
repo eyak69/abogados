@@ -4,7 +4,7 @@ export default function MobileHeader({ onOpenMenu }) {
   return (
     <div className="mobile-top-bar">
       <div className="mobile-logo">
-        Lex <span>Crystal</span>
+        Veritas <span>Legal</span>
       </div>
       <button className="hamburger-btn" onClick={onOpenMenu} aria-label="Abrir menú">
         <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

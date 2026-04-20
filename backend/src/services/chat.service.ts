@@ -1,19 +1,14 @@
 import { VectorService, genAI } from './vector.service';
+import { prisma } from '../lib/prisma';
 
 interface ChatMessage {
     role: 'user' | 'model';
     content: string;
 }
 
-/**
- * Servicio Senior de Chat: Implementa RAG (Retrieval Augmented Generation) 
- * con memoria de sesión y optimización de intención.
- * V2: Integración con Metadatos "Legal Discovery Pro".
- */
 export class ChatService {
 
-    private static history: Map<string, ChatMessage[]> = new Map();
-    private static MAX_HISTORY = 10; 
+    private static MAX_HISTORY = 10;
 
     /**
      * PROMPT ANTERIOR RESPALDADO (V1):
@@ -47,9 +42,22 @@ Tu función es el análisis sustantivo de sentencias basado en la evidencia recu
     static async processChat(message: string, sessionId: string) {
         try {
             console.log(`\n💬 [CHAT] Mensaje recibido: "${message}" (Session: ${sessionId})`);
-            
-            if (!this.history.has(sessionId)) this.history.set(sessionId, []);
-            const sessionHistory = this.history.get(sessionId)!;
+
+            // Cargar historial desde DB
+            await prisma.chatSession.upsert({
+                where: { id: sessionId },
+                update: {},
+                create: { id: sessionId }
+            });
+            const dbHistory = await prisma.chatMessage.findMany({
+                where: { sessionId },
+                orderBy: { createdAt: 'asc' },
+                take: this.MAX_HISTORY * 2
+            });
+            const sessionHistory: ChatMessage[] = dbHistory.map((m: { role: string; message: string }) => ({
+                role: m.role === 'USER' ? 'user' : 'model',
+                content: m.message
+            }));
 
             // 1. Clasificación
             const intent = await this.classifyIntent(message, sessionHistory);
@@ -110,7 +118,7 @@ Tu función es el análisis sustantivo de sentencias basado en la evidencia recu
                         systemInstruction: this.SYSTEM_INSTRUCTION 
                     });
 
-                    const historyText = sessionHistory.map(h => `${h.role === 'user' ? 'Usuario' : 'Asistente'}: ${h.content}`).join('\n');
+                    const historyText = sessionHistory.map((h: ChatMessage) => `${h.role === 'user' ? 'Usuario' : 'Asistente'}: ${h.content}`).join('\n');
 
                     const finalPrompt = `
 HISTORIAL DE CONVERSACIÓN RECIENTE:
@@ -142,12 +150,13 @@ ${message}
 
             if (!responseText) throw new Error("Fallo crítico en la generación de IA.");
 
-            // 5. Actualizar Historial
-            sessionHistory.push({ role: 'user', content: message });
-            sessionHistory.push({ role: 'model', content: responseText });
-            if (sessionHistory.length > this.MAX_HISTORY * 2) {
-                this.history.set(sessionId, sessionHistory.slice(-this.MAX_HISTORY * 2));
-            }
+            // 5. Persistir mensajes en DB
+            await prisma.chatMessage.createMany({
+                data: [
+                    { sessionId, role: 'USER', message },
+                    { sessionId, role: 'AI', message: responseText }
+                ]
+            });
 
             return {
                 output: responseText,

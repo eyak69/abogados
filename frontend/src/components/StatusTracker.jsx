@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
+import { API_URL } from '../config.js';
 
 export default function StatusTracker({ initialStatuses = {} }) {
   const [statuses, setStatuses] = useState(initialStatuses);
 
   useEffect(() => {
-    const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-    const sse = new EventSource(`${apiUrl}/api/upload/status`);
+    const sse = new EventSource(`${API_URL}/api/upload/status`);
 
     sse.onmessage = (e) => {
       try {

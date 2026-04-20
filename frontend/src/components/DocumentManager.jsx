@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../context/AuthContext';
 import axios from 'axios';
+import { API_URL } from '../config.js';
 
 export default function DocumentManager() {
   const { token, user } = useAuth();
@@ -10,7 +11,7 @@ export default function DocumentManager() {
 
   const fetchDocuments = async () => {
     try {
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/documents`, {
+      const response = await axios.get(`${API_URL}/api/documents`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDocuments(response.data);
@@ -30,7 +31,7 @@ export default function DocumentManager() {
     
     setDeletingId(id);
     try {
-      await axios.delete(`${import.meta.env.VITE_API_URL}/api/documents/${id}`, {
+      await axios.delete(`${API_URL}/api/documents/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDocuments(prev => prev.filter(doc => doc.id !== id));

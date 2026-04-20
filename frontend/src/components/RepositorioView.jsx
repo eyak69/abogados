@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
+import { API_URL } from '../config.js';
 
 export default function RepositorioView({ onRefresh }) {
   const { token, user } = useAuth();
@@ -18,7 +19,7 @@ export default function RepositorioView({ onRefresh }) {
   const [loadingLogs, setLoadingLogs] = useState(false);
 
   const [confirmDeleteDoc, setConfirmDeleteDoc] = useState(null);
-  const [isMobile, setIsMobile] = useState(window.innerWidth <= 1024);
+  const [isMobile, setIsMobile] = useState(() => typeof window !== 'undefined' ? window.innerWidth <= 1024 : false);
 
   useEffect(() => {
     const handleResize = () => setIsMobile(window.innerWidth <= 1024);
@@ -26,13 +27,13 @@ export default function RepositorioView({ onRefresh }) {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const fetchDocuments = async () => {
+  const fetchDocuments = async (page = currentPage) => {
     setLoading(true);
     try {
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/documents`, {
+      const response = await axios.get(`${API_URL}/api/documents?page=${page}&limit=${itemsPerPage}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
-      setDocuments(response.data);
+      setDocuments(response.data.docs);
     } catch (error) {
       console.error('Error al cargar repositorio:', error);
     } finally {
@@ -41,11 +42,7 @@ export default function RepositorioView({ onRefresh }) {
   };
 
   useEffect(() => {
-    fetchDocuments();
-    // Cerrar dropdown al hacer click fuera
-    const closeDropdown = () => setActiveDropdownId(null);
-    window.addEventListener('click', closeDropdown);
-    return () => window.removeEventListener('click', closeDropdown);
+    fetchDocuments(currentPage);
   }, [token]);
 
   const handleShowLogs = async (doc) => {
@@ -53,7 +50,7 @@ export default function RepositorioView({ onRefresh }) {
     setShowLogs(true);
     setLoadingLogs(true);
     try {
-      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/documents/${doc.id}/logs`, {
+      const response = await axios.get(`${API_URL}/api/documents/${doc.id}/logs`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setHistoricalLogs(response.data);
@@ -76,7 +73,7 @@ export default function RepositorioView({ onRefresh }) {
     setDeletingId(id);
     setConfirmDeleteDoc(null);
     try {
-      await axios.delete(`${import.meta.env.VITE_API_URL}/api/documents/${id}`, {
+      await axios.delete(`${API_URL}/api/documents/${id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
       setDocuments(prev => prev.filter(doc => doc.id !== id));
@@ -108,7 +105,12 @@ export default function RepositorioView({ onRefresh }) {
   // Resetear paginación al buscar
   useEffect(() => {
     setCurrentPage(1);
+    fetchDocuments(1);
   }, [searchTerm]);
+
+  useEffect(() => {
+    fetchDocuments(currentPage);
+  }, [currentPage]);
 
   return (
     <div className="repositorio-container">

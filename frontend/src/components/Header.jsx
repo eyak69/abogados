@@ -1,8 +1,11 @@
+import { APP_VERSION } from '../version.js';
+
 export default function Header() {
   return (
     <header className="brand-header">
       <div className="logo-container">
         <h1>VERITAS <span className="gold-italic">LEGAL</span></h1>
+        <div className="version-badge">v{APP_VERSION}</div>
       </div>
       <div className="header-meta">
         <div className="connection-status">

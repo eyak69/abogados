@@ -6,17 +6,16 @@ import dotenv from 'dotenv';
 import { prisma } from '../lib/prisma';
 import { uploadEventEmitter } from './n8n.service';
 
-const pdf = require('pdf-parse');
-console.log(`[pdf-parse] typeof=${typeof pdf}, version=${require('pdf-parse/package.json').version}`);
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const pdf = require('pdf-parse') as (buffer: Buffer) => Promise<{ text: string }>;
 
 dotenv.config();
 
 export const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-export const qdrantUrl = process.env.QDRANT_URL?.replace(/\/$/, '') || 'https://qdrant.cristiananton.dev';
+export const qdrantUrl = process.env.QDRANT_URL?.replace(/\/$/, '') || 'http://qdrant:6333';
 export const qdrantKey = process.env.QDRANT_API_KEY;
 export const collectionName = process.env.QDRANT_COLLECTION_NAME || 'abogados_v2';
 
-const BATCH_SIZE = 20;
 
 /**
  * Esquema de Metadatos Legal Discovery Pro (Evolutivo).
@@ -118,7 +117,7 @@ export class VectorService {
             // Log de metadatos completos en formato JSON persistente
             await this.saveLog(documentId, 'INFO', `Metadatos detectados (IA):\n${JSON.stringify(metadata, null, 2)}`, originalName);
             
-            await this.saveLog(documentId, 'INFO', `🔢 Generando vectores de alta dimensión (text-embedding-001)...`, originalName);
+            await this.saveLog(documentId, 'INFO', `🔢 Generando vectores de alta dimensión (gemini-embedding-001)...`, originalName);
 
             const chunks = this.chunkBySentences(fullText, 1800, 400);
             await this.ensureCollection(0);
@@ -243,7 +242,7 @@ ${fullText.substring(0, 15000)}`;
                 const model = genAI.getGenerativeModel({ model: modelName });
                 const r = await model.generateContent(promptFijo);
                 
-                const response = await r.response;
+                const response = r.response;
                 const rawText = response.text().replace(/```json|```/g, '').trim();
                 const base = JSON.parse(rawText);
 
@@ -373,7 +372,9 @@ ${fullText.substring(0, 15000)}`;
                 limit: 1
             }, { headers: { 'api-key': qdrantKey } });
             if (res.data?.result?.points?.length > 0) return res.data.result.points[0].payload;
-        } catch {}
+        } catch (err: any) {
+            console.warn('[VectorService] findByHash: Qdrant no disponible:', err.message);
+        }
         return null;
     }
 

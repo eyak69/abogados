@@ -1,5 +1,6 @@
 import { useState, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { API_URL } from '../config.js';
 
 export default function FileUpload({ onUploadComplete, onUploadStart }) {
   const { token, user } = useAuth();
@@ -34,8 +35,7 @@ export default function FileUpload({ onUploadComplete, onUploadStart }) {
     files.forEach((file) => formData.append('data', file));
 
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-      const response = await fetch(`${apiUrl}/api/upload`, {
+      const response = await fetch(`${API_URL}/api/upload`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`

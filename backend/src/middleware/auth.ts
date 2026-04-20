@@ -30,11 +30,15 @@ export const authenticate = async (req: AuthRequest, res: Response, next: NextFu
         return res.status(401).json({ error: 'API Key inválida o expirada.' });
     }
 
-    // Caso 2: JWT (Frontend / Usuario Web)
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-        const token = authHeader.split(' ')[1];
+    // Caso 2: JWT (Frontend / Usuario Web) — también acepta ?token= para SSE (EventSource no soporta headers)
+    const queryToken = typeof req.query?.token === 'string' ? req.query.token : null;
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    if (bearerToken || queryToken) {
+        const token = bearerToken || queryToken!;
         try {
-            const decoded = jwt.verify(token, process.env.JWT_SECRET || 'secret-shhh') as any;
+            const secret = process.env.JWT_SECRET;
+            if (!secret) return res.status(500).json({ error: 'Configuración de servidor inválida.' });
+            const decoded = jwt.verify(token, secret) as any;
             req.user = { id: decoded.id, email: decoded.email, role: decoded.role };
             return next();
         } catch (err) {

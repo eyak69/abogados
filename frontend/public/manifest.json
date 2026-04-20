@@ -1,0 +1,16 @@
+{
+  "name": "Veritas Legal",
+  "short_name": "Veritas",
+  "description": "Plataforma de Inteligencia Jurídica Soberana",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#041329",
+  "theme_color": "#041329",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml"
+    }
+  ]
+}
