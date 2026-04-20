@@ -99,7 +99,7 @@ Tu función es el análisis sustantivo de sentencias basado en la evidencia recu
             }
 
             // 4. Generación de Respuesta
-            const modelsToTry = ["gemini-3.1-pro-preview", "gemini-2.0-flash", "gemini-pro"];
+            const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
             let responseText = "";
 
             for (const modelName of modelsToTry) {
@@ -170,7 +170,7 @@ ${message}
             const socialKeywords = ['hola', 'chau', 'gracias', 'quien eres', 'quien sos', 'que puedes hacer', 'que hora es'];
             if (message.length < 15 && socialKeywords.some(k => lowMsg.includes(k))) return 'SOCIAL';
 
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             const prompt = `Clasifica el mensaje del usuario en: LEGAL (consulta de casos, leyes o datos) o SOCIAL (saludos, charla). R: "${message}"\nResponde solo con la palabra:`;
 
             const result = await model.generateContent(prompt);
@@ -184,7 +184,7 @@ ${message}
     private static async rewriteQuery(message: string, history: ChatMessage[]): Promise<string> {
         if (history.length === 0) return message;
         try {
-            const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+            const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
             const historySummary = history.slice(-3).map(h => `${h.role}: ${h.content}`).join('\n');
             const prompt = `Genera una frase de búsqueda legal independiente basada en el historial y el nuevo mensaje.\nHISTORIAL:\n${historySummary}\nUSUARIO: "${message}"\nBÚSQUEDA:`;
 

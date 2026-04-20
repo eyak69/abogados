@@ -1,0 +1,40 @@
+services:
+  app:
+    image: cfanton/abogados-legal:latest
+    container_name: abogados_app_coolify
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      # --- Configuración de Base de Datos y Vectorial ---
+      # QDRANT_URL debe coincidir con el nombre que pusiste en Coolify (http://qdrant:6333)
+      - DATABASE_URL=${DATABASE_URL}
+      - QDRANT_URL=http://qdrant:6333
+      - QDRANT_API_KEY=${QDRANT_API_KEY}
+      
+      # --- Seguridad y Auth ---
+      - JWT_SECRET=${JWT_SECRET}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}
+      - INITIAL_EDITOR_EMAIL=${INITIAL_EDITOR_EMAIL}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}
+      - GOOGLE_CALLBACK_URL=${GOOGLE_CALLBACK_URL}
+
+      # --- Configuración de la Aplicación ---
+      - PORT=4000
+      - NODE_ENV=production
+
+    volumes:
+      # Persistencia de archivos y logs en el host (Regla 4)
+      - /opt/abogados/uploads:/app/backend/uploads
+      - /opt/abogados/logs:/app/backend/logs
+
+    # Inicialización de esquema y arranque
+    command: sh -c "npx prisma db push && npm start"
+    networks:
+      - coolify
+
+networks:
+  coolify:
+    name: coolify
+    external: true

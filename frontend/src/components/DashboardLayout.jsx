@@ -1,18 +1,31 @@
+import React, { useState } from 'react';
+import MobileHeader from './MobileHeader';
+
 export default function DashboardLayout({ sidebar, children }) {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  const toggleSidebar = () => setIsSidebarOpen(!isSidebarOpen);
+  const closeSidebar = () => setIsSidebarOpen(false);
+
   return (
     <div className="app-container">
-      <aside className="sidebar">
+      {/* Solo visible en mobile via CSS */}
+      <MobileHeader onOpenMenu={toggleSidebar} />
+
+      {/* Overlay para cerrar al tocar fuera */}
+      <div 
+        className={`sidebar-overlay ${isSidebarOpen ? 'visible' : ''}`} 
+        onClick={closeSidebar}
+      />
+
+      <aside className={`sidebar ${isSidebarOpen ? 'open' : ''}`}>
         {sidebar}
       </aside>
-      <main className="chat-main">
-        <header className="chat-header">
-           <h2>Expediente Activo: <span>General</span></h2>
-           <div className="user-profile">
-              <span className="node-info">v2.1 Stable</span>
-           </div>
-        </header>
+
+      <main className="main-content">
         {children}
       </main>
     </div>
   );
 }
+

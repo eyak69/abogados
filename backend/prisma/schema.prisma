@@ -4,6 +4,32 @@ generator client {
 
 datasource db {
   provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  picture   String?
+  googleId  String   @unique
+  /// Rol del usuario en el sistema. 
+  /// EDITOR: Puede cargar documentos y chatear. 
+  /// VIEWER: Solo puede chatear con los documentos existentes.
+  role      String   @default("VIEWER") 
+  createdAt DateTime @default(now())
+  documents Document[]
+  apiKeys   ApiKey[]
+}
+
+
+model ApiKey {
+  id        String   @id @default(uuid())
+  key       String   @unique
+  name      String   // e.g., "n8n-drive-service"
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  createdAt DateTime @default(now())
 }
 
 model Document {
@@ -11,13 +37,20 @@ model Document {
   filename     String
   originalName String
   size         Int
+  fileHash     String   @unique // MD5 para vinculación con Qdrant
   uploadedAt   DateTime @default(now())
-  status       String   @default("UPLOADED_TO_BACKEND") // UPLOADED_TO_BACKEND, SYNCED_TO_N8N, FAILED
+  status       String   @default("UPLOADED_TO_BACKEND") // UPLOADED_TO_BACKEND, VECTORIZED, FAILED
+  metadata     Json?
+  userId       String?
+  user         User?    @relation(fields: [userId], references: [id])
+  logs         DocumentLog[]
 }
+
 
 model ChatSession {
   id        String   @id @default(uuid())
   title     String?
+  userId    String?
   createdAt DateTime @default(now())
   messages  ChatMessage[]
 }
@@ -29,4 +62,16 @@ model ChatMessage {
   role         String   // USER or AI
   message      String   @db.Text
   createdAt    DateTime @default(now())
+}
+
+
+model DocumentLog {
+  id         String   @id @default(uuid())
+  documentId String
+  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  level      String   @default("INFO") // INFO, WARN, ERROR
+  message    String   @db.Text
+  timestamp  DateTime @default(now())
+
+  @@index([documentId])
 }

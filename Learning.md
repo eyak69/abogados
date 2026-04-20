@@ -35,6 +35,17 @@ Se ha decidido integrar la metodología de "Superpowers" adaptada al español pa
 * **Refactorización de Exportación Premium (pdfmake vs PDFKit):** Migración a **PDFKit** para garantizar resiliencia en la generación de PDFs legales con fuentes estándar en Node.js, eliminando fallos de fuentes del servidor.
 * **Esquema de Metadatos Evolutivo (Legal Discovery Pro):** Implementación de una capa dinámica (`datos_especificos`) que permite a Gemini identificar variables legales únicas por caso, junto a un `resumen_ejecutivo` para visión global del RAG.
 
+## Seguridad y Autenticación Soberana (Abril 2026)
+* **Sistema de Login Gmail (Regla 10):** Implementación de Google OAuth2 (Authorization Code Flow) utilizando `google-auth-library` y generación de JWT soberanos. 
+  * **Soberanía:** Los perfiles se persisten en MySQL vía Prisma (`User` model) vinculando cada documento y sesión de chat al usuario logueado.
+  * **Zero Trust:** Prohibido el acceso a rutas de `/api/upload` o `/api/chat` sin un token válido o una API Key autorizada.
+* **API de Carga Externa (Interoperabilidad n8n):**
+  * **Diseño:** El middleware de autenticación es dual. Permite accesos vía `Authorization: Bearer <JWT>` (Frontend) y `X-API-KEY: <KEY>` (n8n).
+  * **Uso en n8n:** n8n ahora puede subir archivos desde Google Drive consumiendo el mismo endpoint `/api/upload`, garantizando que la lógica de vectorización y extracción de metadatos sea única y centralizada en el backend.
+* **Persistencia Blindada y Migraciones:** Se realizó un `migrate reset` para limpiar el esquema y basar la arquitectura en migraciones oficiales de Prisma, eliminando la deuda técnica de tablas "drifted" sin historial.
+
 ## Problemas Técnicos Específicos y Solucionados
 * **TypeError: pdf is not a function (pdf-parse):** Implementación de lógica de importación resiliente para manejar exportaciones funcionales y de objetos en diversas versiones de la librería.
 * **Fallo en Exportación PDF (Fonts):** Resuelto mediante la migración a PDFKit.
+* **Prisma Drift:** Resuelto mediante el reseteo y sincronización forzada del esquema en el entorno de desarrollo.
+

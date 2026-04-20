@@ -1,6 +1,18 @@
 import { useState, useRef } from 'react';
+import { useAuth } from '../context/AuthContext';
 
 export default function FileUpload({ onUploadComplete, onUploadStart }) {
+  const { token, user } = useAuth();
+
+  // Si el usuario no tiene permisos de EDITOR, ocultamos el panel.
+  // Fallback: Si el email es el del ADMIN oficial, permitimos acceso incluso si la sesión es vieja (JWT sin role).
+  const isAdminEmail = user?.email === 'cfanton@gmail.com';
+  const hasEditorRole = user?.role === 'EDITOR';
+
+  if (!isAdminEmail && !hasEditorRole) return null;
+
+
+
   const [files, setFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
   const [status, setStatus] = useState('');
@@ -25,8 +37,12 @@ export default function FileUpload({ onUploadComplete, onUploadStart }) {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
       const response = await fetch(`${apiUrl}/api/upload`, {
         method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`
+        },
         body: formData,
       });
+
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Server error');
       

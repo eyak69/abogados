@@ -3,9 +3,11 @@ import axios from 'axios';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import { prisma } from '../lib/prisma';
 import { uploadEventEmitter } from './n8n.service';
 
 const pdf = require('pdf-parse');
+console.log(`[pdf-parse] typeof=${typeof pdf}, version=${require('pdf-parse/package.json').version}`);
 
 dotenv.config();
 
@@ -55,92 +57,128 @@ export interface ExtractedMetadata {
 
 export class VectorService {
 
-    static async processAndIngest(filePath: string, originalName: string) {
+    /**
+     * Motor de procesamiento Soberano.
+     * @param filePath Ruta del archivo en disco.
+     * @param originalName Nombre original para logs.
+     * @param documentId ID de la DB para auditoría persistente.
+     */
+    static async processAndIngest(filePath: string, originalName: string, documentId: string) {
+        let fileHash = '';
         try {
-            console.log(`\n🚀 [SOLICITUD RECIBIDA] Procesando: ${originalName}`);
-            uploadEventEmitter.emit('progress', { filename: originalName, status: 'processing', message: 'Extrayendo texto...' });
+            console.log(`\n🚀 [PROCESO INICIADO] ${originalName}`);
+            uploadEventEmitter.emit('progress', { 
+                filename: originalName, 
+                status: 'info', 
+                message: 'Iniciando procesamiento de expediente...',
+                log: `[${new Date().toLocaleTimeString()}] 🚀 Iniciando flujo soberano para: ${originalName}`
+            });
 
             if (!fs.existsSync(filePath)) throw new Error(`Archivo no encontrado: ${filePath}`);
 
             const dataBuffer = fs.readFileSync(filePath);
-            const fileHash = crypto.createHash('md5').update(dataBuffer).digest('hex');
+            
+            // Calculamos Hash real para unicidad
+            fileHash = crypto.createHash('md5').update(dataBuffer).digest('hex');
             
             const existing = await this.findByHash(fileHash);
             if (existing) {
-                console.log(`⚠️ [DUPLICADO] El archivo ya fue indexado.`);
-                uploadEventEmitter.emit('progress', { filename: originalName, status: 'duplicate', message: 'El archivo ya fue indexado anteriormente.' });
-                return existing;
+                uploadEventEmitter.emit('progress', { 
+                    filename: originalName, 
+                    status: 'duplicate', 
+                    message: 'Documento ya existente.',
+                    log: `[${new Date().toLocaleTimeString()}] ⚠️ El hash ${fileHash} ya existe en el repositorio.`
+                });
+                return { metadata: existing, fileHash };
             }
 
             let fullText: string;
-            if (typeof pdf === 'function') {
+            try {
                 const pdfData = await pdf(dataBuffer);
                 fullText = pdfData.text;
-            } else if (pdf.PDFParse) {
-                const parser = new pdf.PDFParse({ data: dataBuffer });
-                const result = await parser.getText();
-                fullText = result.text;
-            } else {
-                throw new Error('Estructura de pdf-parse no reconocida.');
+            } catch (err: any) {
+                console.error(`❌ [PDF ERROR] typeof pdf=${typeof pdf}, error=${err.message}`, err.stack);
+                throw new Error(`Error procesando PDF: ${err.message}`);
             }
-            console.log(`✅ [1/5] Texto extraído (${fullText.length} caracteres).`);
 
-            console.log(`🧠 [2/5] Ejecutando Extracciones Dinámicas (IA)...`);
-            uploadEventEmitter.emit('progress', { filename: originalName, status: 'processing', message: 'Ejecutando Legal Discovery Evolutivo (Datos Dinámicos)...' });
-            
+
+            await this.saveLog(documentId, 'INFO', `🧠 Consultando modelos Gemini para extracción legal...`, originalName);
+
             const metadata = await this.extractStructuredMetadata(fullText);
-            console.log(`📋 [METADATOS EXTRAÍDOS]:\n${JSON.stringify(metadata, null, 2)}`);
+            
+            // Persistencia de Metadatos en el Documento Principal
+            await prisma.document.update({
+                where: { id: documentId },
+                data: { 
+                    metadata: metadata as any,
+                    status: 'VECTORIZED'
+                }
+            });
 
-            // Log especial para Hallazgos Dinámicos
-            const dynamicKeys = Object.keys(metadata.datos_especificos || {});
-            if (dynamicKeys.length > 0) {
-                console.log(`\n✨ [HALLAZGOS FANTÁSTICOS DETECTADOS]:`);
-                dynamicKeys.forEach(key => {
-                    console.log(`   🔸 ${key}: ${metadata.datos_especificos[key]}`);
-                });
-                console.log('');
-            }
+            // Log de metadatos completos en formato JSON persistente
+            await this.saveLog(documentId, 'INFO', `Metadatos detectados (IA):\n${JSON.stringify(metadata, null, 2)}`, originalName);
+            
+            await this.saveLog(documentId, 'INFO', `🔢 Generando vectores de alta dimensión (text-embedding-001)...`, originalName);
 
-            if (metadata.cuij === 'N/A' && metadata.caratula === 'N/A') {
-                throw new Error('Metadatos insuficientes para indexar.');
-            }
-
-            const chunks = this.chunkBySentences(fullText, 1500, 200);
+            const chunks = this.chunkBySentences(fullText, 1800, 400);
             await this.ensureCollection(0);
 
-            for (let batchStart = 0; batchStart < chunks.length; batchStart += BATCH_SIZE) {
-                const batchChunks = chunks.slice(batchStart, batchStart + BATCH_SIZE);
-                uploadEventEmitter.emit('progress', { filename: originalName, status: 'processing', message: `Vectorizando... (${batchStart + batchChunks.length}/${chunks.length})` });
+            const BATCH_SIZE_LIMIT = 3;
+            for (let batchStart = 0; batchStart < chunks.length; batchStart += BATCH_SIZE_LIMIT) {
+                const batchChunks = chunks.slice(batchStart, batchStart + BATCH_SIZE_LIMIT);
+                
+                await this.saveLog(documentId, 'INFO', `📥 Indexando batch ${batchStart} - ${batchStart + batchChunks.length} en Qdrant...`, originalName);
 
-                const vectors = await Promise.all(batchChunks.map(c => this.generateEmbedding(c)));
+                const vectors: number[][] = [];
+                for (const chunk of batchChunks) {
+                    vectors.push(await this.generateEmbedding(chunk));
+                }
 
-                const points = batchChunks.map((chunk, i) => {
-                    const globalIndex = batchStart + i;
-                    return {
-                        id: this.makePointId(fileHash, globalIndex),
-                        vector: vectors[i],
-                        payload: {
-                            content: chunk,
-                            filename: originalName,
-                            ...metadata, 
-                            ingested_at: new Date().toISOString(),
-                            file_hash: fileHash
-                        }
-                    };
-                });
+                const points = batchChunks.map((chunk, i) => ({
+                    id: this.makePointId(fileHash, batchStart + i),
+                    vector: vectors[i],
+                    payload: {
+                        content: chunk,
+                        filename: originalName,
+                        ...metadata, 
+                        file_hash: fileHash
+                    }
+                }));
                 await this.batchUpsertToQdrant(points);
+                
+                if (batchStart + BATCH_SIZE_LIMIT < chunks.length) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
             }
 
-            console.log(`✨ [5/5] PROCESO COMPLETADO EXITOSAMENTE PARA: ${originalName}\n`);
-            uploadEventEmitter.emit('progress', { filename: originalName, status: 'success', metadata });
-            return metadata;
+            await this.saveLog(documentId, 'SUCCESS', `✅ ¡Procesamiento completado con éxito!`, originalName);
+            return { metadata, fileHash };
 
         } catch (error: any) {
             console.error(`❌ [VectorService Error] ${error.message}`);
-            uploadEventEmitter.emit('progress', { filename: originalName, status: 'error', message: error.message });
+            await this.saveLog(documentId, 'ERROR', `❌ Fallo crítico: ${error.message}`, originalName);
             throw error;
         }
     }
+
+    /**
+     * Limpia la base vectorial de todos los fragmentos asociados a un archivo.
+     */
+    public static async deleteVectorsByHash(fileHash: string) {
+        try {
+            console.log(`🗑️ [VectorService] Borrando vectores para hash: ${fileHash}`);
+            await axios.post(`${qdrantUrl}/collections/${collectionName}/points/delete`, {
+                filter: {
+                    must: [{ key: 'file_hash', match: { value: fileHash } }]
+                }
+            }, { headers: { 'api-key': qdrantKey } });
+            return true;
+        } catch (error: any) {
+            console.error(`[VectorService] Error al borrar vectores:`, error.message);
+            return false;
+        }
+    }
+
 
     public static async searchRelevantContext(query: string, limit: number = 8) {
         try {
@@ -164,13 +202,21 @@ export class VectorService {
     }
 
     private static async extractStructuredMetadata(fullText: string): Promise<ExtractedMetadata> {
-        const modelsToTry = ["gemini-2.5-flash", "gemini-2.0-flash-001", "gemini-2.0-flash-lite"];
+        // Modelos disponibles en v1beta (Regla 11: Resiliencia ante cambios de Google)
+        const modelsToTry = ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-2.5-flash-lite"];
 
-        // PASADA 1: campos fijos con el encabezado del documento (rápido y confiable)
+        const defaultMetadata: ExtractedMetadata = {
+            cuij: "N/A", causa_nro: "N/A", caratula: "N/A", actoras: [], demandados: [],
+            especialidad: "Desconocida", tipo_proceso: "N/A", instancia: "N/A", tribunal: "N/A",
+            resumen_ejecutivo: "Extracción automática fallida.", resultado: "N/A", postura_tribunal: "N/A",
+            monto_condena_estimado: 0, monto_honorarios_total: 0, fecha_sentencia: "",
+            ministros: [], temas_clave: [], datos_especificos: {}
+        };
+
         const promptFijo = `Eres un Auditor Legal Senior. Analiza este fragmento de sentencia y extrae SOLO los campos fijos.
 RESPONDE ÚNICAMENTE CON JSON VÁLIDO, sin markdown:
 {
-  "cuij": "formato XX-XXXXXXXX-X o N/A",
+  "cuij": "XX-XXXXXXXX-X o N/A",
   "causa_nro": "string",
   "caratula": "string",
   "actoras": ["string"],
@@ -179,116 +225,118 @@ RESPONDE ÚNICAMENTE CON JSON VÁLIDO, sin markdown:
   "tipo_proceso": "string",
   "instancia": "Primera Instancia|Cámara|Corte",
   "tribunal": "string",
-  "resumen_ejecutivo": "3 párrafos: Hechos / Conflicto / Resolución",
+  "resumen_ejecutivo": "Hechos / Conflicto / Resolución",
   "resultado": "string",
   "postura_tribunal": "string",
   "monto_condena_estimado": 0,
   "monto_honorarios_total": 0,
-  "fecha_sentencia": "YYYY-MM-DD o vacío",
+  "fecha_sentencia": "YYYY-MM-DD",
   "ministros": ["string"],
   "temas_clave": ["string"]
 }
-TEXTO (primeros 12000 caracteres):
-${fullText.substring(0, 12000)}`;
+TEXTO:
+${fullText.substring(0, 15000)}`;
 
-        // PASADA 2: datos dinámicos con el texto completo (detecta hallazgos en el cuerpo del fallo)
-        const promptDinamico = `Eres un investigador legal forense. Analizá la sentencia completa e identificá entre 3 y 8 datos únicos y específicos de ESTE caso que no son genéricos.
-Ejemplos de buenas claves: "tasa_interes_aplicada", "pericia_contable_resultado", "nombre_testigo_clave", "acuerdo_conciliatorio_monto", "norma_aplicada", "incumplimiento_detectado", "plazo_cumplimiento_dias".
-NO uses claves genéricas como "observaciones" o "notas".
-RESPONDE ÚNICAMENTE CON UN JSON PLANO (un solo nivel, sin anidamiento):
-{ "clave_especifica": "valor concreto", ... }
-Si no encontrás datos únicos relevantes, devolvé: {}
-TEXTO COMPLETO:
-${fullText.substring(0, 60000)}`;
+        for (const modelName of modelsToTry) {
+            try {
+                console.log(`🧠 [IA] Intentando extracción con: ${modelName}...`);
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const r = await model.generateContent(promptFijo);
+                
+                const response = await r.response;
+                const rawText = response.text().replace(/```json|```/g, '').trim();
+                const base = JSON.parse(rawText);
 
-        let base: Partial<ExtractedMetadata> = {};
-        let dinamico: Record<string, any> = {};
-
-        // Ejecutar ambas pasadas en paralelo
-        const [resBase, resDinamico] = await Promise.allSettled(
-            modelsToTry.slice(0, 1).flatMap(modelName => [
-                (async () => {
-                    const model = genAI.getGenerativeModel({ model: modelName });
-                    const r = await model.generateContent(promptFijo);
-                    return JSON.parse(r.response.text().replace(/```json|```/g, '').trim());
-                })(),
-                (async () => {
-                    const model = genAI.getGenerativeModel({ model: modelName });
-                    const r = await model.generateContent(promptDinamico);
-                    return JSON.parse(r.response.text().replace(/```json|```/g, '').trim());
-                })()
-            ])
-        );
-
-        // Fallback a modelos alternativos si el primero falló
-        if (resBase.status === 'fulfilled') {
-            base = resBase.value;
-        } else {
-            console.error(`[VectorService Meta] Pasada 1 falló: ${resBase.reason?.message}`);
-            for (const modelName of modelsToTry.slice(1)) {
-                try {
-                    const model = genAI.getGenerativeModel({ model: modelName });
-                    const r = await model.generateContent(promptFijo);
-                    base = JSON.parse(r.response.text().replace(/```json|```/g, '').trim());
-                    break;
-                } catch (err: any) {
-                    console.error(`[VectorService Meta] Fallback ${modelName} falló: ${err.message}`);
+                console.log(`✅ [IA] Extracción exitosa con ${modelName}`);
+                return {
+                    ...defaultMetadata,
+                    ...base,
+                    cuij: String(base.cuij || 'N/A'),
+                    caratula: String(base.caratula || 'N/A')
+                };
+            } catch (err: any) {
+                // Manejo Senior de errores (Regla 11)
+                const isOverloaded = err.message.includes('503') || err.message.includes('high demand');
+                const isNotFound = err.message.includes('404') || err.message.includes('not found');
+                
+                if (isOverloaded) {
+                    console.warn(`⚠️ [IA] Modelo ${modelName} saturado (503).`);
+                } else if (isNotFound) {
+                    console.warn(`⚠️ [IA] Modelo ${modelName} no disponible en este endpoint (404).`);
+                } else {
+                    console.warn(`⚠️ [IA] Error inesperado con ${modelName}: ${err.message}`);
                 }
+                continue; 
             }
         }
 
-        if (resDinamico.status === 'fulfilled') {
-            dinamico = resDinamico.value;
-        } else {
-            console.warn(`[VectorService Meta] Pasada dinámica falló, continuando sin datos específicos.`);
-        }
-
-        if (!base.cuij) throw new Error("Fallo crítico en extracción de metadatos.");
-
-        // Validación y sanitización de tipos
-        return {
-            cuij:                  String(base.cuij   ?? 'N/A'),
-            causa_nro:             String(base.causa_nro ?? 'N/A'),
-            caratula:              String(base.caratula ?? 'N/A'),
-            actoras:               Array.isArray(base.actoras) ? base.actoras : [],
-            demandados:            Array.isArray(base.demandados) ? base.demandados : [],
-            especialidad:          String(base.especialidad ?? 'N/A'),
-            tipo_proceso:          String(base.tipo_proceso ?? 'N/A'),
-            instancia:             String(base.instancia ?? 'N/A'),
-            tribunal:              String(base.tribunal ?? 'N/A'),
-            resumen_ejecutivo:     String(base.resumen_ejecutivo ?? ''),
-            resultado:             String(base.resultado ?? 'N/A'),
-            postura_tribunal:      String(base.postura_tribunal ?? ''),
-            monto_condena_estimado: Number(base.monto_condena_estimado) || 0,
-            monto_honorarios_total: Number(base.monto_honorarios_total) || 0,
-            fecha_sentencia:       String(base.fecha_sentencia ?? ''),
-            ministros:             Array.isArray(base.ministros) ? base.ministros : [],
-            temas_clave:           Array.isArray(base.temas_clave) ? base.temas_clave : [],
-            datos_especificos:     typeof dinamico === 'object' && !Array.isArray(dinamico) ? dinamico : {},
-        };
+        throw new Error("Todos los modelos de IA fallaron. No se puede grabar sin metadatos legibles.");
     }
+
 
     private static chunkBySentences(text: string, maxSize: number, overlap: number): string[] {
         const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(p => p.length > 20);
         const chunks: string[] = [];
         let current = '';
-        for (const para of paragraphs) {
+
+        for (let i = 0; i < paragraphs.length; i++) {
+            const para = paragraphs[i];
+            
+            // Si el párrafo solo ya excede el tamaño, lo metemos como chunk único (aunque sea grande)
+            if (para.length > maxSize) {
+                if (current) chunks.push(current.trim());
+                chunks.push(para.substring(0, maxSize));
+                current = ""; // O podrías implementar lógica para el excedente
+                continue;
+            }
+
             if ((current + '\n\n' + para).length <= maxSize) {
                 current = current ? current + '\n\n' + para : para;
             } else {
                 if (current) chunks.push(current.trim());
-                current = para;
+                
+                // --- LÓGICA DE OVERLAP REAL (Regla 7) ---
+                // Retrocedemos un poco para que el siguiente chunk tenga contexto del anterior
+                const lastContent = current.substring(current.length - overlap);
+                current = lastContent + '\n\n' + para;
             }
         }
         if (current) chunks.push(current.trim());
         return chunks;
     }
 
-    public static async generateEmbedding(text: string): Promise<number[]> {
-        const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
-        const result = await model.embedContent(text);
-        return result.embedding.values;
+
+    public static async generateEmbedding(text: string, attempt = 1): Promise<number[]> {
+        try {
+            // Reversión por estabilidad a gemini-embedding-001
+            const model = genAI.getGenerativeModel({ model: "gemini-embedding-001" });
+            const result = await model.embedContent(text);
+            return result.embedding.values;
+        } catch (error: any) {
+            const isRateLimit = error.message?.includes('429') || error.status === 429;
+            if (isRateLimit && attempt <= 5) {
+                const delay = Math.pow(2, attempt) * 1000 + Math.random() * 1000;
+                const warnMsg = `⚠️ [Cuota] 429 detectado. Reintento ${attempt}/5 en ${Math.round(delay)}ms...`;
+                console.warn(warnMsg);
+                
+                uploadEventEmitter.emit('progress', { 
+                    status: 'warn', 
+                    log: `[${new Date().toLocaleTimeString()}] ${warnMsg}`
+                });
+
+                await new Promise(resolve => setTimeout(resolve, delay));
+                return this.generateEmbedding(text, attempt + 1);
+            }
+            
+            uploadEventEmitter.emit('progress', { 
+                status: 'error', 
+                log: `[${new Date().toLocaleTimeString()}] ❌ Error en IA: ${error.message}`
+            });
+            console.error(`❌ [VectorService Error]`, error.message);
+            throw error;
+        }
     }
+
 
     private static makePointId(fileHash: string, index: number): string {
         return crypto.createHash('md5').update(`${fileHash}::${index}`).digest('hex')
@@ -333,5 +381,27 @@ ${fullText.substring(0, 60000)}`;
         await axios.put(`${qdrantUrl}/collections/${collectionName}/points`, { points }, {
             headers: { 'api-key': qdrantKey, 'Content-Type': 'application/json' }
         });
+    }
+
+    // Helper para persistencia de logs (Regla 13)
+    private static async saveLog(documentId: string, level: string, message: string, filename?: string) {
+        try {
+            await (prisma as any).documentLog.create({
+                data: {
+                    documentId: documentId,
+                    level: level,
+                    message: message
+                }
+            });
+
+            // También emitir a la terminal activa por SSE
+            uploadEventEmitter.emit('progress', { 
+                filename: filename || 'system', 
+                status: level.toLowerCase(), 
+                log: `[${new Date().toLocaleTimeString()}] ${message}`
+            });
+        } catch (err) {
+            console.error("Error guardando log persistente:", err);
+        }
     }
 }
