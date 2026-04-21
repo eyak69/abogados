@@ -48,7 +48,13 @@ export default function SidebarNav({ activeView, onViewChange }) {
 
       <div className="sidebar-footer">
         <div className="user-mini-info">
-          <div className="user-avatar">{user?.name?.charAt(0) || 'U'}</div>
+          <div className="user-avatar">
+            {user?.picture ? (
+              <img src={user.picture} alt={user.name} className="user-photo" />
+            ) : (
+              user?.name?.charAt(0) || 'U'
+            )}
+          </div>
           <div className="user-details">
             <span className="user-name">{user?.name}</span>
             <span className="user-role">{user?.role}</span>
@@ -124,17 +130,23 @@ export default function SidebarNav({ activeView, onViewChange }) {
           gap: 0.8rem;
         }
         .user-avatar {
-          width: 38px;
-          height: 38px;
-          background: linear-gradient(135deg, var(--sys-color-primary), var(--sys-color-primary-container));
+          width: 48px;
+          height: 48px;
+          border-radius: 14px;
+          background: var(--sys-color-primary);
           color: var(--sys-color-on-primary);
-          border-radius: 10px;
           display: flex;
           align-items: center;
           justify-content: center;
           font-weight: 700;
-          font-size: 0.9rem;
-          box-shadow: 0 4px 15px rgba(242, 202, 80, 0.2);
+          font-size: 1.2rem;
+          box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+          overflow: hidden; /* Asegura que la foto no se salga del radio */
+        }
+        .user-photo {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
         }
         .user-details {
           display: flex;

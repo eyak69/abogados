@@ -208,11 +208,20 @@ app.delete('/api/documents/:id', authenticate, requireRole('EDITOR'), async (req
         const doc = await prisma.document.findUnique({ where: { id } });
         if (!doc) return res.status(404).json({ error: 'Expediente no hallado.' });
 
-        // 1. Borrar en Qdrant (Memoria IA)
-        const qdrantOk = await VectorService.deleteVectorsByHash(doc.fileHash);
-        if (!qdrantOk) {
-            console.warn(`[Delete] Qdrant falló para ${id} — abortando borrado para evitar inconsistencia.`);
-            return res.status(500).json({ error: 'Fallo al borrar vectores. Reintentá en unos segundos.' });
+        // 1. Lógica de Integridad: Solo borrar vectores si es la última copia (Regla 1)
+        const sameHashCount = await prisma.document.count({
+            where: { fileHash: doc.fileHash }
+        });
+
+        if (sameHashCount === 1) {
+            console.log(`🗑️ [Vector Delete] Borrando vectores: es la última referencia para el hash ${doc.fileHash}`);
+            const qdrantOk = await VectorService.deleteVectorsByHash(doc.fileHash);
+            if (!qdrantOk) {
+                console.warn(`[Delete] Qdrant falló para ${id} — abortando borrado para evitar inconsistencia.`);
+                return res.status(500).json({ error: 'Fallo al borrar vectores. Reintentá en unos segundos.' });
+            }
+        } else {
+            console.log(`🛡️ [Safe Delete] Conservando vectores: existen ${sameHashCount} documentos con el mismo hash.`);
         }
 
         // 2. Borrar Archivo Físico
