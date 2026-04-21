@@ -165,10 +165,17 @@ app.post('/api/upload', authenticate, requireRole('EDITOR'), upload.array('data'
                 })
                 .catch(async (err) => {
                     console.error(`[Fatal Vector] ${file.originalname}:`, err.message);
-                    await prisma.document.update({
-                        where: { id: document.id },
-                        data: { status: 'FAILED' }
-                    });
+                    
+                    if (err.message === "INCOHERENT_METADATA") {
+                        // RECHAZO TOTAL: Borramos el registro para no ensuciar la grilla (Regla 10)
+                        await prisma.document.delete({ where: { id: document.id } });
+                        console.log(`🧹 [Atomic Cleanup] Registro borrado por incoherencia: ${document.id}`);
+                    } else {
+                        await prisma.document.update({
+                            where: { id: document.id },
+                            data: { status: 'FAILED' }
+                        });
+                    }
                 });
         }
 

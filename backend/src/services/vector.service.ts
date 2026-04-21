@@ -105,6 +105,18 @@ export class VectorService {
 
             const metadata = await this.extractStructuredMetadata(fullText);
             
+            // --- BLINDAJE LEGAL GUARD (Regla 10: Zero Trust) ---
+            const isIncoherent = metadata.cuij === 'N/A' && metadata.caratula === 'N/A';
+            if (isIncoherent) {
+                const rejectMsg = `❌ [RECHAZADO] Documento incoherente. No se detectaron metadatos legales válidos (CUIJ/Carátula). Abortando misión.`;
+                await this.saveLog(documentId, 'ERROR', rejectMsg, originalName);
+                
+                // Limpieza física inmediata
+                if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+                
+                throw new Error("INCOHERENT_METADATA");
+            }
+            
             // Persistencia de Metadatos en el Documento Principal
             await prisma.document.update({
                 where: { id: documentId },
