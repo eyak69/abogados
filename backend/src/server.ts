@@ -164,17 +164,14 @@ app.post('/api/upload', authenticate, requireRole('EDITOR'), upload.array('data'
                     });
                 })
                 .catch(async (err) => {
-                    console.error(`[Fatal Vector] ${file.originalname}:`, err.message);
+                    console.error(`[Fatal Vector Reject] ${file.originalname}:`, err.message);
                     
-                    if (err.message === "INCOHERENT_METADATA") {
-                        // RECHAZO TOTAL: Borramos el registro para no ensuciar la grilla (Regla 10)
+                    // RECHAZO TOTAL (Regla 1 & 10): Si falla por cualquier motivo, se borra de la DB para no ensuciar.
+                    try {
                         await prisma.document.delete({ where: { id: document.id } });
-                        console.log(`🧹 [Atomic Cleanup] Registro borrado por incoherencia: ${document.id}`);
-                    } else {
-                        await prisma.document.update({
-                            where: { id: document.id },
-                            data: { status: 'FAILED' }
-                        });
+                        console.log(`🧹 [Atomic Cleanup] Registro eliminado tras fallo de procesamiento: ${document.id}`);
+                    } catch (cleanupErr) {
+                        console.error(`[Cleanup Error] No se pudo borrar registro fallido:`, cleanupErr);
                     }
                 });
         }
