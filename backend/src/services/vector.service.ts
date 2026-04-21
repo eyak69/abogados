@@ -151,6 +151,18 @@ export class VectorService {
             }
 
             await this.saveLog(documentId, 'SUCCESS', `✅ ¡Procesamiento completado con éxito!`, originalName);
+
+            // --- PURGA AUTOMÁTICA (Regla 1: No es un repositorio de archivos) ---
+            try {
+                if (fs.existsSync(filePath)) {
+                    fs.unlinkSync(filePath);
+                    console.log(`♻️ [Purga] Archivo binario eliminado tras vectorización: ${originalName}`);
+                    await this.saveLog(documentId, 'INFO', `♻️ Archivo físico purgado para optimizar almacenamiento.`, originalName);
+                }
+            } catch (purgeErr: any) {
+                console.warn(`[Purga Error] No se pudo borrar ${filePath}: ${purgeErr.message}`);
+            }
+
             return { metadata, fileHash };
 
         } catch (error: any) {

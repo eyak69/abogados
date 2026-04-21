@@ -224,9 +224,16 @@ app.delete('/api/documents/:id', authenticate, requireRole('EDITOR'), async (req
             console.log(`🛡️ [Safe Delete] Conservando vectores: existen ${sameHashCount} documentos con el mismo hash.`);
         }
 
-        // 2. Borrar Archivo Físico
-        const filePath = path.join(__dirname, '../uploads', doc.filename);
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+        // 2. Borrar Archivo Físico (si existe - ahora se purgan tras vectorizar)
+        try {
+            const filePath = path.join(__dirname, '../uploads', doc.filename);
+            if (fs.existsSync(filePath)) {
+                fs.unlinkSync(filePath);
+                console.log(`🗑️ [Delete] Archivo físico borrado: ${doc.filename}`);
+            }
+        } catch (fileErr: any) {
+            console.warn(`[Delete] No se pudo borrar archivo físico (quizás ya purgado): ${fileErr.message}`);
+        }
 
         // 3. Borrar en MySQL
         await prisma.document.delete({ where: { id } });
